@@ -93,12 +93,29 @@ xyz...
 
 ### 3. 设置环境变量
 
-将生成的密钥设置为环境变量：
+有两种方式设置环境变量：
+
+#### 方式一：使用 .env 文件（推荐）
+
+创建 `.env` 文件并添加密钥：
+
+```bash
+# 创建 .env 文件
+cat > .env << EOF
+VAPID_PUBLIC_KEY=你的公钥
+VAPID_PRIVATE_KEY=你的私钥
+PORT=8080
+EOF
+```
+
+#### 方式二：使用系统环境变量
 
 ```bash
 export VAPID_PUBLIC_KEY="你的公钥"
 export VAPID_PRIVATE_KEY="你的私钥"
 ```
+
+**注意**：如果同时存在 `.env` 文件和系统环境变量，系统环境变量会优先使用。
 
 ### 4. 启动服务器
 

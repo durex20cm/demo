@@ -375,12 +375,42 @@
         async function unsubscribeFromPush() {
             try {
                 if (subscription) {
+                    const endpoint = subscription.endpoint;
+
+                    // 先在前端取消订阅
                     await subscription.unsubscribe();
                     subscription = null;
-                    updateStatus('已取消订阅', 'info');
+                    log('已在前端取消订阅');
+
+                    // 通知服务器取消订阅
+                    try {
+                        const response = await fetch('/api/unsubscribe', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                endpoint: endpoint
+                            })
+                        });
+
+                        const data = await response.json();
+                        if (response.ok) {
+                            log('服务器已删除订阅: ' + data.message);
+                            updateStatus('已取消订阅', 'info');
+                        } else {
+                            log('警告: 服务器取消订阅失败: ' + (data.message || '未知错误'));
+                            updateStatus('已取消订阅（但服务器更新失败）', 'info');
+                        }
+                    } catch (serverError) {
+                        log('警告: 无法连接到服务器: ' + serverError.message);
+                        updateStatus('已取消订阅（但服务器更新失败）', 'info');
+                    }
+
                     document.getElementById('subscribeBtn').disabled = false;
                     document.getElementById('unsubscribeBtn').disabled = true;
-                    log('已取消订阅');
+                } else {
+                    updateStatus('当前没有活跃的订阅', 'info');
                 }
             } catch (error) {
                 updateStatus('取消订阅失败: ' + error.message, 'error');

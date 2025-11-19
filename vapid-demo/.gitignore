@@ -26,3 +26,5 @@ Thumbs.db
 # 日志
 *.log
 
+# 数据文件
+data/subscriptions.json
