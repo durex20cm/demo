@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAPID Web Push 通知演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .button.secondary {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .button.secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .log {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔔 VAPID Web Push 通知演示</h1>
+        <p class="subtitle">完整的 Web Push 通知流程演示</p>
+
+        <div id="status" class="status info">
+            正在检查通知权限...
+        </div>
+
+        <div class="form-group">
+            <button id="subscribeBtn" class="button" onclick="subscribeToPush()">
+                订阅推送通知
+            </button>
+        </div>
+
+        <div class="form-group">
+            <button id="unsubscribeBtn" class="button secondary" onclick="unsubscribeFromPush()" disabled>
+                取消订阅
+            </button>
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e0e0e0;">
+
+        <h2 style="margin-bottom: 20px; font-size: 20px;">发送测试通知</h2>
+
+        <div class="form-group">
+            <label for="title">通知标题</label>
+            <input type="text" id="title" placeholder="输入通知标题" value="测试通知">
+        </div>
+
+        <div class="form-group">
+            <label for="body">通知内容</label>
+            <textarea id="body" placeholder="输入通知内容">这是一条测试推送通知消息！</textarea>
+        </div>
+
+        <div class="form-group">
+            <button class="button" onclick="sendTestNotification()">
+                发送测试通知
+            </button>
+        </div>
+
+        <div id="log" class="log" style="display: none;">
+            <div class="log-entry">日志将显示在这里...</div>
+        </div>
+    </div>
+
+    <script>
+        let vapidPublicKey = '';
+        let registration = null;
+        let subscription = null;
+
+        // 初始化
+        async function init() {
+            updateStatus('正在初始化...', 'info');
+
+            // 检查浏览器支持
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                updateStatus('您的浏览器不支持 Web Push 通知', 'error');
+                return;
+            }
+
+            // 获取 VAPID 公钥
+            try {
+                const response = await fetch('/api/vapid-public-key');
+                const data = await response.json();
+                vapidPublicKey = data.publicKey;
+                log('已获取 VAPID 公钥');
+            } catch (error) {
+                updateStatus('无法获取 VAPID 公钥: ' + error.message, 'error');
+                return;
+            }
+
+            // 注册 Service Worker
+            try {
+                registration = await navigator.serviceWorker.register('/static/sw.js');
+                log('Service Worker 注册成功');
+
+                // 检查 Service Worker 状态
+                if (registration.installing) {
+                    log('Service Worker 正在安装...');
+                } else if (registration.waiting) {
+                    log('Service Worker 等待激活...');
+                    // 如果 Service Worker 在等待，尝试跳过等待
+                    if (registration.waiting) {
+                        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                } else if (registration.active) {
+                    log('Service Worker 已激活');
+                }
+
+                // 等待 Service Worker 激活
+                // 使用 registration.ready 等待 Service Worker 变为激活状态
+                // 如果 Service Worker 已经激活，这个 Promise 会立即解析
+                console.log('registration', registration);
+                await registration.ready;
+                log('Service Worker 已就绪，状态: ' + (registration.active ? 'active' : 'unknown'));
+
+                // 如果 Service Worker 还没有激活，等待一下
+                if (!registration.active) {
+                    log('等待 Service Worker 激活...');
+                    // 监听状态变化
+                    await new Promise((resolve) => {
+                        const checkActive = () => {
+                            if (registration.active) {
+                                log('Service Worker 现在已激活');
+                                resolve();
+                            } else {
+                                setTimeout(checkActive, 100);
+                            }
+                        };
+                        checkActive();
+                        // 设置超时（最多等待 5 秒）
+                        setTimeout(() => {
+                            if (!registration.active) {
+                                log('警告: Service Worker 激活超时，继续执行...');
+                                resolve();
+                            }
+                        }, 5000);
+                    });
+                }
+
+                // 检查现有订阅
+                await checkSubscription();
+            } catch (error) {
+                updateStatus('Service Worker 注册失败: ' + error.message, 'error');
+                log('错误: ' + error.message);
+                console.error('Service Worker 错误详情:', error);
+            }
+        }
+
+        // 检查现有订阅
+        async function checkSubscription() {
+            subscription = await registration.pushManager.getSubscription();
+
+            if (subscription) {
+                updateStatus('已订阅推送通知', 'success');
+                document.getElementById('subscribeBtn').disabled = true;
+                document.getElementById('unsubscribeBtn').disabled = false;
+                log('发现现有订阅');
+            } else {
+                updateStatus('未订阅推送通知，点击按钮订阅', 'info');
+                document.getElementById('subscribeBtn').disabled = false;
+                document.getElementById('unsubscribeBtn').disabled = true;
+            }
+        }
+
+        // 订阅推送通知
+        async function subscribeToPush() {
+            try {
+                updateStatus('正在请求通知权限...', 'info');
+
+                // 请求通知权限
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    updateStatus('通知权限被拒绝', 'error');
+                    return;
+                }
+
+                log('通知权限已授予');
+
+                // 将 VAPID 公钥转换为 Uint8Array
+                const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+
+                // 检查是否已存在订阅
+                const existingSubscription = await registration.pushManager.getSubscription();
+
+                if (existingSubscription) {
+                    // 检查现有订阅的 applicationServerKey 是否与当前匹配
+                    const existingKey = existingSubscription.options.applicationServerKey;
+                    const keysMatch = existingKey &&
+                        JSON.stringify(Array.from(existingKey)) === JSON.stringify(Array.from(applicationServerKey));
+
+                    if (!keysMatch) {
+                        log('检测到使用不同 VAPID 公钥的旧订阅，正在取消...');
+                        await existingSubscription.unsubscribe();
+                        log('已取消旧订阅');
+                    } else {
+                        // 如果公钥匹配，直接使用现有订阅
+                        subscription = existingSubscription;
+                        log('使用现有订阅');
+                    }
+                }
+
+                // 如果没有有效订阅，创建新订阅
+                if (!subscription) {
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: applicationServerKey
+                    });
+                    log('已创建新的推送订阅');
+                }
+
+                // 发送订阅信息到服务器
+                const response = await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        endpoint: subscription.endpoint,
+                        keys: {
+                            p256dh: arrayBufferToBase64(subscription.getKey('p256dh')),
+                            auth: arrayBufferToBase64(subscription.getKey('auth'))
+                        }
+                    })
+                });
+
+                if (response.ok) {
+                    updateStatus('订阅成功！', 'success');
+                    document.getElementById('subscribeBtn').disabled = true;
+                    document.getElementById('unsubscribeBtn').disabled = false;
+                    log('订阅信息已发送到服务器');
+                } else {
+                    throw new Error('服务器订阅失败');
+                }
+            } catch (error) {
+                console.error(error);
+                updateStatus('订阅失败: ' + error.message, 'error');
+                log('错误: ' + error.message);
+            }
+        }
+
+        // 取消订阅
+        async function unsubscribeFromPush() {
+            try {
+                if (subscription) {
+                    await subscription.unsubscribe();
+                    subscription = null;
+                    updateStatus('已取消订阅', 'info');
+                    document.getElementById('subscribeBtn').disabled = false;
+                    document.getElementById('unsubscribeBtn').disabled = true;
+                    log('已取消订阅');
+                }
+            } catch (error) {
+                updateStatus('取消订阅失败: ' + error.message, 'error');
+                log('错误: ' + error.message);
+            }
+        }
+
+        // 发送测试通知
+        async function sendTestNotification() {
+            const title = document.getElementById('title').value || '测试通知';
+            const body = document.getElementById('body').value || '这是一条测试消息';
+
+            try {
+                const response = await fetch('/api/push', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: title,
+                        body: body,
+                        icon: '/static/icon.png',
+                        // url: window.location.origin
+                        url: 'https://www.baidu.com'
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    updateStatus(`推送成功！${data.message}`, 'success');
+                    log(`推送结果: ${data.message}`);
+                } else {
+                    throw new Error(data.message || '推送失败');
+                }
+            } catch (error) {
+                updateStatus('推送失败: ' + error.message, 'error');
+                log('错误: ' + error.message);
+            }
+        }
+
+        // 工具函数：将 base64 URL 编码的字符串转换为 Uint8Array
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/\-/g, '+')
+                .replace(/_/g, '/');
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        // 工具函数：将 ArrayBuffer 转换为 base64
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        // 更新状态
+        function updateStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = 'status ' + type;
+        }
+
+        // 日志
+        function log(message) {
+            const logEl = document.getElementById('log');
+            logEl.style.display = 'block';
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // 页面加载时初始化
+        window.addEventListener('load', init);
+
+        // 监听来自 Service Worker 的消息
+        navigator.serviceWorker.addEventListener('message', event => {
+            log('收到 Service Worker 消息: ' + event.data);
+        });
+    </script>
+</body>
+
+</html>
